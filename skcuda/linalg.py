@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-PyCUDA-based linear algebra functions.
+PyCUDA-based linear algebra functions. My update is in cho_factor.
 """
 
 from __future__ import absolute_import, division
@@ -300,6 +300,8 @@ def cho_factor(a_gpu, uplo='L', lib='cusolver'):
     True
 
     """
+    #Only use cusolver rather than cula
+    
     if lib == 'cusolver':
         if not _has_cusolver:
             raise NotImplementedError('CUSOLVER not installed')
