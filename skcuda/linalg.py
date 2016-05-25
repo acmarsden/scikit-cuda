@@ -260,7 +260,7 @@ def svd(a_gpu, jobu='A', jobvt='A', lib='cula'):
     else:
         return s_gpu
 
-def cho_factor(a_gpu, uplo='L'):
+def cho_factor(a_gpu, uplo='L', lib='cusolver'):
     """
     Cholesky factorisation
 
@@ -300,43 +300,88 @@ def cho_factor(a_gpu, uplo='L'):
     True
 
     """
+    if lib == 'cusolver':
+        if not _has_cusolver:
+            raise NotImplementedError('CUSOLVER not installed')
 
-    if not _has_cula:
-        raise NotImplementedError('CULA not installed')
+        cusolverHandle = misc._global_cusolver_handle
 
-    data_type = a_gpu.dtype.type
-    real_type = np.float32
-    if cula._libcula_toolkit == 'standard':
         if data_type == np.complex64:
-            cula_func = cula.culaDeviceCpotrf
+            func = cusolver.cusolverDnCpotrf
+            bufsize = cusolver.cusolverDnCpotrf_bufferSize
         elif data_type == np.float32:
-            cula_func = cula.culaDeviceSpotrf
+            func = cusolver.cusolverDnSpotrf
+            bufsize = cusolver.cusolverDnSpotrf_bufferSize
         elif data_type == np.complex128:
-            cula_func = cula.culaDeviceZpotrf
+            real_type = np.float64
+            func = cusolver.cusolverDnZpotrf
+            bufsize = cusolver.cusolverDnZpotrf_bufferSize
         elif data_type == np.float64:
-            cula_func = cula.culaDeviceDpotrf
+            real_type = np.float64
+            func = cusolver.cusolverDnDpotrf
+            bufsize = cusolver.cusolverDnDpotrf_bufferSize
         else:
             raise ValueError('unsupported type')
-        real_type = np.float64
     else:
-        raise ValueError('Cholesky factorisation not included in CULA Dense Free version')
+        raise ValueError('invalid library specified')
 
-    # Since CUDA assumes that arrays are stored in column-major
-    # format, the input matrix is assumed to be transposed:
-    n, m = a_gpu.shape
-    if (n!=m):
-        raise ValueError('Matrix must be symmetric positive-definite')
+    n = a_gpu.shape
 
     # Set the leading dimension of the input matrix:
-    lda = max(1, m)
+    lda = max(1, n)
+    
+    # Allocate working space:
+    Lwork = bufsize(misc._global_cusolver_handle, n)
+    Work = gpuarray.empty(Lwork, data_type, allocator=alloc)
+    devInfo = gpuarray.empty(1, np.int32, allocator=alloc)
 
-    cula_func(uplo, n, int(a_gpu.gpudata), lda)
+    func(misc._global_cusolver_handle,
+         CUBLAS_FILL_MODE_LOWER,
+         n, int(a_gpu.gpudata),
+         lda,int(Work.gpudata), 
+         Lwork, int(devInfo.gpudata))
 
-    # Free internal CULA memory:
-    cula.culaFreeBuffers()
-
-    # In-place operation. No return matrix. Result is stored in the input matrix.
-
+    # Free working space:
+    del Work, devInfo
+    
+    """	
+    elif lib=='cula':
+	    if not _has_cula:
+	        raise NotImplementedError('CULA not installed')
+	
+	    data_type = a_gpu.dtype.type
+	    real_type = np.float32
+	    if cula._libcula_toolkit == 'standard':
+	        if data_type == np.complex64:
+	            cula_func = cula.culaDeviceCpotrf
+	        elif data_type == np.float32:
+	            cula_func = cula.culaDeviceSpotrf
+	        elif data_type == np.complex128:
+	            cula_func = cula.culaDeviceZpotrf
+	        elif data_type == np.float64:
+	            cula_func = cula.culaDeviceDpotrf
+	        else:
+	            raise ValueError('unsupported type')
+	        real_type = np.float64
+	    else:
+	        raise ValueError('Cholesky factorisation not included in CULA Dense Free version')
+	
+	    # Since CUDA assumes that arrays are stored in column-major
+	    # format, the input matrix is assumed to be transposed:
+	    n, m = a_gpu.shape
+	    if (n!=m):
+	        raise ValueError('Matrix must be symmetric positive-definite')
+	
+	    # Set the leading dimension of the input matrix:
+	    lda = max(1, m)
+	
+	    cula_func(uplo, n, int(a_gpu.gpudata), lda)
+	
+	    # Free internal CULA memory:
+	    cula.culaFreeBuffers()
+	
+	    # In-place operation. No return matrix. Result is stored in the input matrix.
+    """
 
 def cho_solve(a_gpu, b_gpu, uplo='L'):
     """
